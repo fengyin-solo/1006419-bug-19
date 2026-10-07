@@ -68,4 +68,8 @@ npm run build
 - 字段、状态、动作与流转目标集中在 `frontend/src/data/modules.ts`；示例数据在
   `frontend/src/data/seed.ts`。
 - 状态流转只允许在 `local-service.ts` 里改，页面组件不做业务判断。
+- 进厂计量单按「待过磅 → 已过磅 → 已复核」单向流转（各动作允许的起始状态登记在
+  `modules.ts` 的 `actionFrom` 里）：过磅时按毛重减皮重算出净重，与状态一起落库；复核通过后
+  计量单整条锁定，结果回写垃圾池入池台账（本地存储键 `pit-intake`，垃圾池管理页面底部展示）。
+  同一辆车在同一时段重复提交过磅只生效一次，被拦下的记录留在待过磅队列并写明拦截缘由。
 - 想回到初始数据：清掉浏览器里 `waste-to-energy-plant:entries` 这一项，或调用 `resetModule(模块)`。

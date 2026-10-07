@@ -17,6 +17,8 @@ export type ModuleMeta = {
   statuses: string[]
   actions: string[]
   actionTargets: Record<string, string>
+  // 每个动作允许的起始状态：登记了的模块只准走这些边，跳级和回退都会被挡下。
+  actionFrom?: Record<string, string[]>
   metrics: string[]
 }
 
