@@ -46,8 +46,9 @@
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
           <td>{{ row.status }}</td>
           <td class="row-actions">
+            <button class="link" type="button" @click="openDetail(row)">详情</button>
             <button
-              v-for="action in actions"
+              v-for="action in rowActions(row)"
               :key="action"
               class="link"
               type="button"
@@ -55,6 +56,7 @@
             >
               {{ action }}
             </button>
+            <span v-if="!rowActions(row).length" class="locked-hint">已锁定</span>
           </td>
         </tr>
         <tr v-if="!rows.length">
@@ -63,8 +65,27 @@
       </tbody>
     </table>
 
+    <div v-if="detail" class="detail-mask" @click.self="closeDetail">
+      <div class="detail-panel">
+        <header class="detail-head">
+          <h3>计量单详情：{{ detail['计量单号'] }}</h3>
+          <button class="btn ghost" type="button" @click="closeDetail">关闭</button>
+        </header>
+        <dl class="detail-grid">
+          <template v-for="column in columns" :key="column">
+            <dt>{{ column }}</dt>
+            <dd>{{ display(detail[column]) }}</dd>
+          </template>
+          <dt>当前状态</dt>
+          <dd>{{ detail.status }}</dd>
+        </dl>
+        <p class="detail-note">详情与列表、运营概览读的是同一份记录；同一计量单号有冲突时以最近一次过磅的时点为准。</p>
+      </div>
+    </div>
+
     <footer class="page-foot">
       <span>共 {{ total }} 条垃圾进厂计量记录</span>
+      <span v-if="noticeMessage" class="notice-text">{{ noticeMessage }}</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
     </footer>
   </section>
@@ -74,30 +95,43 @@
 import { computed, onMounted, ref } from 'vue'
 
 import {
+  allowedActions,
   downloadEntries,
+  getEntry,
   listEntries,
   moduleMeta,
   runAction as applyAction,
+  weighbridgeSummary,
 } from '@/api/local-service'
 import type { EntryRow } from '@/data/types'
 
 const meta = moduleMeta('weighbridge')
-const columns = ["计量单号", "进场车牌", "垃圾来源", "毛重", "皮重", "净重", "过磅时间", "计量状态"]
-const actions = ["提交过磅", "确认复核", "标记异常"]
-const statuses = ["待过磅", "已过磅", "已复核", "数据异常"]
-const stats = [{"label": "待过磅车辆", "value": 0}, {"label": "已复核计量单", "value": 0}, {"label": "当日进厂量", "value": 0}]
+const columns = meta.fields
+const statuses = meta.statuses
 
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
+const noticeMessage = ref('')
 const filters = ref<Record<string, string>>({})
+const detail = ref<EntryRow | null>(null)
 const filterFields = columns.slice(0, 3)
+
+const stats = computed(() => weighbridgeSummary(rows.value))
 const statusSummary = computed(() =>
   statuses.map((status: string) => ({
     status,
     count: rows.value.filter((row) => String(row.status) === status).length,
   })),
 )
+
+function rowActions(row: EntryRow): string[] {
+  return allowedActions(meta.key, row)
+}
+
+function display(value: unknown) {
+  return value === '' || value === null || value === undefined ? '—' : value
+}
 
 function resetFilters() {
   filters.value = {}
@@ -112,18 +146,37 @@ function openCreate() {
   errorMessage.value = '进厂计量单登记入口尚未接入审批流'
 }
 
-function runAction(action: string, row: EntryRow) {
+function openDetail(row: EntryRow) {
   errorMessage.value = ''
-  const result = applyAction(meta.key, Number(row.id), action)
-  if (!result.ok) {
-    errorMessage.value = result.message
+  const fresh = getEntry(meta.key, Number(row.id))
+  if (!fresh) {
+    errorMessage.value = `没有找到编号为 ${row.id} 的进厂计量单`
     return
   }
+  detail.value = fresh
+}
+
+function closeDetail() {
+  detail.value = null
+}
+
+function runAction(action: string, row: EntryRow) {
+  errorMessage.value = ''
+  noticeMessage.value = ''
+  const result = applyAction(meta.key, Number(row.id), action)
+  if (result.ok) {
+    noticeMessage.value = result.message
+  } else {
+    errorMessage.value = result.message
+  }
+  // 成功失败都刷新：被挡下的记录会把拦截原因写回队列，界面上必须看得见。
   reload()
+  if (detail.value && Number(detail.value.id) === Number(row.id)) {
+    detail.value = getEntry(meta.key, Number(row.id))
+  }
 }
 
 function reload() {
-  errorMessage.value = ''
   try {
     const payload = listEntries(meta.key, filters.value)
     rows.value = payload.items
@@ -135,3 +188,53 @@ function reload() {
 
 onMounted(reload)
 </script>
+
+<style scoped>
+.detail-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+.detail-panel {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  width: 560px;
+  max-width: calc(100vw - 48px);
+  max-height: 80vh;
+  overflow: auto;
+}
+.detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.detail-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.detail-grid {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 6px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+.detail-grid dt {
+  color: var(--muted);
+}
+.detail-grid dd {
+  margin: 0;
+}
+.detail-note {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+</style>

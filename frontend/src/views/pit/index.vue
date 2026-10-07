@@ -67,6 +67,31 @@
       <span>共 {{ total }} 条垃圾池管理记录</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
     </footer>
+
+    <section class="ledger-section">
+      <header class="ledger-head">
+        <h3 class="ledger-title">入池台账</h3>
+        <p class="page-desc">进厂计量单复核完成后自动回写，按入池时间倒序排列。</p>
+      </header>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th v-for="column in ledgerColumns" :key="column">{{ column }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="entry in ledger" :key="String(entry.id)">
+            <td v-for="column in ledgerColumns" :key="column">{{ entry[column] ?? '—' }}</td>
+          </tr>
+          <tr v-if="!ledger.length">
+            <td :colspan="ledgerColumns.length" class="empty-state">暂无入池台账记录，进厂计量单复核后会自动写入</td>
+          </tr>
+        </tbody>
+      </table>
+      <footer class="page-foot">
+        <span>共 {{ ledger.length }} 条入池台账</span>
+      </footer>
+    </section>
   </section>
 </template>
 
@@ -76,6 +101,7 @@ import { computed, onMounted, ref } from 'vue'
 import {
   downloadEntries,
   listEntries,
+  listPitLedger,
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
@@ -86,8 +112,10 @@ const columns = ["池区编号", "垃圾存量", "发酵天数", "渗滤液液�
 const actions = ["开始发酵", "确认投料", "安排倒料"]
 const statuses = ["待投料", "发酵中", "已投料", "需倒料"]
 const stats = [{"label": "发酵中池区", "value": 0}, {"label": "已投料池区", "value": 0}, {"label": "需倒料池区", "value": 0}]
+const ledgerColumns = ["计量单号", "进场车牌", "垃圾来源", "净重", "过磅时间", "复核时间", "入池时间", "台账状态"]
 
 const rows = ref<EntryRow[]>([])
+const ledger = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
@@ -128,6 +156,7 @@ function reload() {
     const payload = listEntries(meta.key, filters.value)
     rows.value = payload.items
     total.value = payload.total
+    ledger.value = listPitLedger()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '垃圾池管理列表读取失败'
   }
@@ -135,3 +164,16 @@ function reload() {
 
 onMounted(reload)
 </script>
+
+<style scoped>
+.ledger-section {
+  margin-top: 24px;
+}
+.ledger-head {
+  margin-bottom: 8px;
+}
+.ledger-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+</style>
